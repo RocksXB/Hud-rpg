@@ -9,15 +9,33 @@ official database; Firebase Realtime Database is not used.
 2. Copy `.env.example` to `.env`.
 3. Run `npm run build`, `npm run lint`, and `npm test`.
 
+`index.html` and `src/main.js` are the standard Vite application entry points;
+the project is not configured as a JavaScript library. They provide only a
+minimal System Shell bootstrap so Login, Character Creation, and World HUD can
+be introduced incrementally.
+
 Firebase is initialized once in `src/firebase.js` with the modular SDK. That
 module exports the shared `auth` and `db` instances. Authentication helpers in
 `src/services/auth.js` support the existing email/password flow (login, logout,
 and session observation); no federated provider is configured.
 
-`getCurrentUserProfile` in `src/services/firestore.js` is the initial safe
-Firestore read. It returns the authenticated user's own `users/{uid}` document
+`getCurrentPlayer` in `src/services/firestore.js` is the initial safe
+Firestore read. It returns the authenticated player's own `players/{uid}` document
 or `null` when signed out/the document does not exist. It never creates or
 changes data.
+
+### Player ID and Access Key
+
+The immersive UI may authenticate with a **Player ID** and **Access Key**.
+`src/player-identity.js` owns the conversion from Player ID to the internal
+Firebase Auth email (`normalized-player-id@grpg.local`), keeping this technical
+detail out of future screens. `logInWithPlayerId` and `registerWithPlayerId`
+provide that flow, while direct email/password login and registration remain
+available for account flows that require them. Both use Firebase Email/Password;
+no additional provider is involved.
+
+Player identity and game state use only `players/{uid}`. Do not create a parallel
+`users/{uid}` model for the same entity.
 
 ## Environment variables
 
@@ -53,7 +71,7 @@ Console for project `grpg-335ce`:
 2. Confirm the Cloud Firestore database exists in the intended location.
 3. Review `firestore.rules` against any pre-existing production collections
    before deployment. The checked-in baseline permits an authenticated user to
-   read only their own `users/{uid}` document and denies every other operation.
+   read only their own `players/{uid}` document and denies every other operation.
 4. Deploy rules only after that review with
    `firebase deploy --only firestore:rules --project grpg-335ce`. Deployment is
    intentionally not part of the build and was not performed by this change.
@@ -68,8 +86,9 @@ features. No database contents are migrated, deleted, or seeded by this setup.
 
 After configuration, use an existing email/password account to verify:
 
-1. `logInWithEmail(email, password)` establishes a session.
-2. `getCurrentUserProfile()` reads only `users/{uid}` (or returns `null` when
+1. `logInWithEmail(email, password)` or `logInWithPlayerId(playerId, accessKey)`
+   establishes a session.
+2. `getCurrentPlayer()` reads only `players/{uid}` (or returns `null` when
    the profile does not exist).
 3. Refresh and verify `observeAuthState` restores the session.
 4. `logOut()` clears the session.

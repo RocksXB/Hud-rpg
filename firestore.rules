@@ -2,8 +2,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // The setup code performs only this authenticated, owner-scoped read.
-    match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
+    match /players/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
     }
 
     // No other client access is introduced by this baseline configuration.

@@ -1,12 +1,5 @@
-import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
-export default defineConfig({
-  build: {
-    lib: {
-      entry: resolve(import.meta.dirname, "src/firebase.js"),
-      formats: ["es"],
-      fileName: "firebase",
-    },
-  },
-});
+// Standard Vite web application. index.html remains the application entry so
+// future shells and screens can grow without changing the build architecture.
+export default defineConfig({});
