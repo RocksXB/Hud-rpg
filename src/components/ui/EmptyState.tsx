@@ -1,0 +1,1 @@
+export function EmptyState({ code, title, message }: { code: string; title: string; message: string }) { return <section className="empty-state"><p className="kicker">{code}</p><h2>{title}</h2><p>{message}</p></section>; }

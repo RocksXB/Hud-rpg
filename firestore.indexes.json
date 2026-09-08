@@ -1,0 +1,8 @@
+{
+  "indexes": [
+    { "collectionGroup": "inventory", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "acquiredAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "itemRequests", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "guilds", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "name", "order": "ASCENDING" }] }
+  ],
+  "fieldOverrides": []
+}
