@@ -1,100 +1,117 @@
-# HUD-RPG
+# HUD-RPG 2.0
 
-Baseline Firebase integration for HUD-RPG. Cloud Firestore is the project's
-official database; Firebase Realtime Database is not used.
+Uma aplicação React/TypeScript mobile-first em que o jogador acessa o Sistema
+vinculado ao seu personagem. Firebase Authentication (Email/Password) e Cloud
+Firestore são as únicas tecnologias Firebase de persistência.
 
-## Local setup
+## Estado implementado
 
-1. Install dependencies with `npm install`.
-2. Copy `.env.example` to `.env`.
-3. Run `npm run build`, `npm run lint`, and `npm test`.
+- ritual Link Start curto, pulável e compatível com reduced motion;
+- acesso e cadastro por **Player ID + Access Key**, sem revelar o e-mail técnico;
+- recuperação automática de `players/{uid}` quando Auth existe sem perfil;
+- criação de personagem com nome, raça, classe, cálculo puro de stats/HP/MP;
+- World View, Status e launcher responsivo do System Shell;
+- estados derivados NORMAL, COMBAT, CRITICAL, EVENT e SYSTEM;
+- empty states reais para módulos ainda sem dados, sem mocks em produção;
+- repositories para player, admin, inventário e solicitação de item;
+- regras e testes de regras para autorização crítica.
 
-`index.html` and `src/main.js` are the standard Vite application entry points;
-the project is not configured as a JavaScript library. They provide only a
-minimal System Shell bootstrap so Login, Character Creation, and World HUD can
-be introduced incrementally.
+## Desenvolvimento
 
-Firebase is initialized once in `src/firebase.js` with the modular SDK. That
-module exports the shared `auth` and `db` instances. Authentication helpers in
-`src/services/auth.js` support the existing email/password flow (login, logout,
-and session observation); no federated provider is configured.
+```bash
+npm install
+cp .env.example .env
+npm run dev
+npm run typecheck
+npm run lint
+npm test
+```
 
-`getCurrentPlayer` in `src/services/firestore.js` is the initial safe
-Firestore read. It returns the authenticated player's own `players/{uid}` document
-or `null` when signed out/the document does not exist. It never creates or
-changes data.
+O build de produção é `npm run build` e gera `dist/`. O fallback SPA para
+Cloudflare Pages está em `public/_redirects`.
 
-### Player ID and Access Key
+## Arquitetura
 
-The immersive UI may authenticate with a **Player ID** and **Access Key**.
-`src/player-identity.js` owns the conversion from Player ID to the internal
-Firebase Auth email (`normalized-player-id@grpg.local`), keeping this technical
-detail out of future screens. `logInWithPlayerId` and `registerWithPlayerId`
-provide that flow, while direct email/password login and registration remain
-available for account flows that require them. Both use Firebase Email/Password;
-no additional provider is involved.
+```text
+src/app                 composition, providers e Error Boundary
+src/features            fluxos por capacidade do jogo
+src/game                catálogo estático e matemática pura
+src/services/firebase   SDK modular e repositories Firestore
+src/system              shell, navegação, áudio e estado reativo
+src/styles              tokens, global e motion
+src/types               contratos e runtime guards
+```
 
-Player identity and game state use only `players/{uid}`. Do not create a parallel
-`users/{uid}` model for the same entity.
+Componentes não acessam Firestore diretamente. Leituras são limitadas e
+disparadas quando o módulo correspondente é usado; não há polling nem listener
+global de coleções. A sessão é responsabilidade do Firebase Auth.
 
-## Environment variables
+## Modelo Firestore
 
-The frontend build requires all of these Vite variables:
+- `players/{uid}` — identidade e estado resumido do personagem;
+- `players/{uid}/inventory/{ownedItemId}`;
+- `players/{uid}/skills/{skillId}`;
+- `players/{uid}/titles/{titleId}`;
+- `players/{uid}/quests/{questId}`;
+- `players/{uid}/notifications/{notificationId}`;
+- `admins/{uid}` — autorização administrativa, fora do player;
+- `items/{itemId}` — catálogo canônico;
+- `itemRequests/{requestId}`;
+- `guilds/{guildId}/members/{uid}` e `joinRequests/{uid}`;
+- `parties/{partyId}/members/{uid}`;
+- `systemAnnouncements/{announcementId}`.
 
-- `VITE_FIREBASE_API_KEY`
-- `VITE_FIREBASE_AUTH_DOMAIN`
-- `VITE_FIREBASE_PROJECT_ID`
-- `VITE_FIREBASE_STORAGE_BUCKET`
-- `VITE_FIREBASE_MESSAGING_SENDER_ID`
-- `VITE_FIREBASE_APP_ID`
+Os índices compostos versionados estão em `firestore.indexes.json`. Inventário
+permanece como subcoleção para impedir o crescimento ilimitado do player.
 
-The expected public web-app values are documented in `.env.example`. Firebase
-web configuration identifies the Firebase project; it is not an Admin SDK key
-or a substitute for Security Rules. Never add a service-account JSON file.
+## Segurança e bootstrap manual
 
-### Cloudflare deployment
+As rules **não são publicadas pelo build e não foram publicadas neste trabalho**.
+Antes do primeiro deploy:
 
-Add the six variables above to the Cloudflare Pages project's **Settings >
-Environment variables** for both Preview and Production, then trigger a new
-deployment. Vite injects these variables at build time, so Cloudflare runtime
-secrets/bindings alone will not make them available to the bundle.
+1. habilite somente Email/Password em Firebase Authentication;
+2. crie Cloud Firestore no projeto `grpg-335ce`;
+3. obtenha o UID do primeiro administrador e crie manualmente
+   `admins/{uid}` no Firebase Console (o cliente não possui permissão de escrita);
+4. revise e publique `firestore.rules` e `firestore.indexes.json` explicitamente;
+5. adicione os domínios Cloudflare em Authentication > Authorized domains.
 
-Use `npm run build` as the build command and `dist` as the output directory.
+As rules usam a existência de `admins/{request.auth.uid}`. `isAdmin` não existe
+no player. Jogadores não podem elevar level, conceder inventário, revisar o
+próprio pedido ou alterar conteúdo de notificações.
 
-## Firebase Console setup
+Para executar os testes de rules, instale Java/Firebase CLI e rode
+`npm run test:rules`. Eles usam apenas o Emulator e nunca produção.
 
-Manual changes cannot be performed from this repository. In the Firebase
-Console for project `grpg-335ce`:
+## Cloudflare Pages
 
-1. Confirm **Authentication > Sign-in method > Email/Password** is enabled.
-   Do not enable Google Sign-In for this application.
-2. Confirm the Cloud Firestore database exists in the intended location.
-3. Review `firestore.rules` against any pre-existing production collections
-   before deployment. The checked-in baseline permits an authenticated user to
-   read only their own `players/{uid}` document and denies every other operation.
-4. Deploy rules only after that review with
-   `firebase deploy --only firestore:rules --project grpg-335ce`. Deployment is
-   intentionally not part of the build and was not performed by this change.
-5. Add the deployed Cloudflare domain to **Authentication > Settings >
-   Authorized domains** if it is not already listed.
+- Build command: `npm run build`
+- Output directory: `dist`
+- Configure em **Preview e Production**:
+  - `VITE_FIREBASE_API_KEY`
+  - `VITE_FIREBASE_AUTH_DOMAIN`
+  - `VITE_FIREBASE_PROJECT_ID`
+  - `VITE_FIREBASE_STORAGE_BUCKET`
+  - `VITE_FIREBASE_MESSAGING_SENDER_ID`
+  - `VITE_FIREBASE_APP_ID`
 
-Because existing remote rules and documents are not available in this checkout,
-do not deploy the baseline rules blindly: doing so could restrict existing app
-features. No database contents are migrated, deleted, or seeded by this setup.
+Essas variáveis são configuração pública do app web, não credenciais Admin.
+Nunca adicione service account ao frontend ou repositório.
 
-## Validation in a deployed environment
+## Auditoria da referência
 
-After configuration, use an existing email/password account to verify:
+O produto preserva os conceitos solicitados da referência — Link Start, Player
+ID, Access Key, criação, raças/classes, stats, mundo, módulos, guilda, party e
+admin — mas não reutiliza sua arquitetura nem persistência. O acesso remoto ao
+repositório de referência foi bloqueado pelo proxy deste ambiente; portanto,
+listas adicionais não verificáveis não foram inventadas. As opções explicitadas
+na especificação estão versionadas até uma auditoria comparativa posterior.
 
-1. `logInWithEmail(email, password)` or `logInWithPlayerId(playerId, accessKey)`
-   establishes a session.
-2. `getCurrentPlayer()` reads only `players/{uid}` (or returns `null` when
-   the profile does not exist).
-3. Refresh and verify `observeAuthState` restores the session.
-4. `logOut()` clears the session.
-5. Confirm the browser console and Network panel contain no Firebase errors and
-   no Realtime Database requests.
+## Custos e próximos módulos
 
-These end-to-end checks require a deployed origin, enabled Firebase services,
-and valid user credentials, so they cannot be automated safely with repository
-fixtures.
+O player normal nunca consulta todos os players. Inventário usa `limit(40)` e os
+módulos fechados não carregam dados. Realtime deve ser reservado ao player atual,
+notificações relevantes e contexto ativo, sempre com unsubscribe. Admin deverá
+usar cursores, filtros e paginação. Implementações ainda pendentes devem seguir
+os contracts já definidos para Equipment, Items, Quests, Skills, Titles, Guild,
+Party e Admin, sem usar dados fictícios como fallback.

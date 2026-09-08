@@ -1,14 +1,173 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // The setup code performs only this authenticated, owner-scoped read.
-    match /players/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
+    function signedIn() { return request.auth != null; }
+    function owns(uid) { return signedIn() && request.auth.uid == uid; }
+    function admin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+
+    function validStats(stats) {
+      return stats.keys().hasOnly(['str','agi','vit','int','dex','luk']) &&
+        stats.str is int && stats.agi is int && stats.vit is int && stats.int is int && stats.dex is int && stats.luk is int &&
+        stats.str >= 0 && stats.agi >= 0 && stats.vit >= 0 && stats.int >= 0 && stats.dex >= 0 && stats.luk >= 0;
     }
 
-    // No other client access is introduced by this baseline configuration.
-    match /{document=**} {
-      allow read, write: if false;
+    function allowedRace(id) {
+      return id in ['human','elf','dwarf','orc','beastfolk','draconian','demon','celestial','fairy','undead'];
     }
+
+    function allowedClass(id) {
+      return id in ['warrior','guardian','rogue','archer','lancer','fighter','mage','sorcerer','warlock','acolyte','priest','naturalist','ranger','artificer','prophet','oracle','strategist','observer','dancer','puppeteer','gambler','wanderer'];
+    }
+
+    function raceStr(id) { return id == 'dwarf' || id == 'demon' ? 1 : (id == 'orc' || id == 'draconian' ? 2 : 0); }
+    function raceAgi(id) { return id == 'beastfolk' || id == 'fairy' ? 2 : 0; }
+    function raceVit(id) { return id == 'dwarf' || id == 'orc' || id == 'draconian' || id == 'celestial' || id == 'undead' ? (id == 'dwarf' || id == 'undead' ? 2 : 1) : 0; }
+    function raceInt(id) { return id == 'elf' || id == 'fairy' || id == 'undead' ? 1 : (id == 'demon' || id == 'celestial' ? 2 : 0); }
+    function raceDex(id) { return id == 'elf' ? 2 : (id == 'beastfolk' ? 1 : 0); }
+    function raceLuk(id) { return 0; }
+
+    function classStr(id) {
+      return id == 'warrior' || id == 'lancer' || id == 'fighter' ? 3 :
+        (id == 'guardian' ? 2 : (id == 'wanderer' ? 1 : 0));
+    }
+    function classAgi(id) {
+      return id == 'rogue' || id == 'archer' || id == 'fighter' || id == 'ranger' ? 2 :
+        (id == 'dancer' ? 3 : (id == 'wanderer' ? 1 : 0));
+    }
+    function classVit(id) {
+      return id == 'guardian' ? 3 :
+        (id == 'warrior' || id == 'acolyte' || id == 'priest' ? 2 : (id == 'wanderer' ? 1 : 0));
+    }
+    function classInt(id) {
+      return id == 'mage' ? 4 :
+        (id in ['sorcerer','warlock','acolyte','priest','naturalist','prophet','oracle','strategist'] ? 3 :
+        (id == 'artificer' || id == 'observer' || id == 'puppeteer' ? 2 : (id == 'wanderer' ? 1 : 0)));
+    }
+    function classDex(id) {
+      return id in ['rogue','archer','ranger','artificer','observer','puppeteer'] ? 3 :
+        (id in ['lancer','strategist','dancer','gambler'] ? 2 : (id == 'wanderer' ? 1 : 0));
+    }
+    function classLuk(id) {
+      return id == 'gambler' ? 3 :
+        (id in ['sorcerer','warlock','naturalist','prophet','oracle'] ? 2 : (id == 'wanderer' ? 1 : 0));
+    }
+
+    function expectedStr(data) { return 10 + raceStr(data.raceId) + classStr(data.classId); }
+    function expectedAgi(data) { return 10 + raceAgi(data.raceId) + classAgi(data.classId); }
+    function expectedVit(data) { return 10 + raceVit(data.raceId) + classVit(data.classId); }
+    function expectedInt(data) { return 10 + raceInt(data.raceId) + classInt(data.classId); }
+    function expectedDex(data) { return 10 + raceDex(data.raceId) + classDex(data.classId); }
+    function expectedLuk(data) { return 10 + raceLuk(data.raceId) + classLuk(data.classId); }
+
+    function validHumanStats(data) {
+      return data.stats.str >= expectedStr(data) && data.stats.str <= expectedStr(data) + 1 &&
+        data.stats.agi >= expectedAgi(data) && data.stats.agi <= expectedAgi(data) + 1 &&
+        data.stats.vit >= expectedVit(data) && data.stats.vit <= expectedVit(data) + 1 &&
+        data.stats.int >= expectedInt(data) && data.stats.int <= expectedInt(data) + 1 &&
+        data.stats.dex >= expectedDex(data) && data.stats.dex <= expectedDex(data) + 1 &&
+        data.stats.luk >= expectedLuk(data) && data.stats.luk <= expectedLuk(data) + 1 &&
+        (data.stats.str - expectedStr(data)) +
+        (data.stats.agi - expectedAgi(data)) +
+        (data.stats.vit - expectedVit(data)) +
+        (data.stats.int - expectedInt(data)) +
+        (data.stats.dex - expectedDex(data)) +
+        (data.stats.luk - expectedLuk(data)) == 2;
+    }
+
+    function validFixedStats(data) {
+      return data.stats.str == expectedStr(data) && data.stats.agi == expectedAgi(data) &&
+        data.stats.vit == expectedVit(data) && data.stats.int == expectedInt(data) &&
+        data.stats.dex == expectedDex(data) && data.stats.luk == expectedLuk(data);
+    }
+
+    function validCharacterStats(data) {
+      return allowedRace(data.raceId) && allowedClass(data.classId) && validStats(data.stats) &&
+        (data.raceId == 'human' ? validHumanStats(data) : validFixedStats(data)) &&
+        data.maxHp == 80 + data.stats.vit * 4 && data.maxMp == 30 + data.stats.int * 5;
+    }
+
+    function initialPlayer(uid) {
+      return owns(uid) && request.resource.data.keys().hasOnly([
+        'playerId','displayName','characterCreated','raceId','classId','level','xp','hp','maxHp','mp','maxMp','condition',
+        'locationId','regionId','zoneType','guildId','partyId','activeTitleId','avatarUrl','appearance','stats','createdAt','updatedAt','schemaVersion'
+      ]) && request.resource.data.playerId is string && request.resource.data.playerId.size() >= 3 && request.resource.data.playerId.size() <= 32 &&
+        request.auth.token.email == request.resource.data.playerId + '@grpg.local' && request.resource.data.characterCreated == false &&
+        request.resource.data.displayName == null && request.resource.data.raceId == null && request.resource.data.classId == null &&
+        request.resource.data.level == 1 && request.resource.data.xp == 0 && request.resource.data.hp == 0 && request.resource.data.maxHp == 0 &&
+        request.resource.data.mp == 0 && request.resource.data.maxMp == 0 && request.resource.data.condition == 'stable' &&
+        request.resource.data.zoneType == 'safe' && validStats(request.resource.data.stats) &&
+        request.resource.data.stats.str == 0 && request.resource.data.stats.agi == 0 && request.resource.data.stats.vit == 0 &&
+        request.resource.data.stats.int == 0 && request.resource.data.stats.dex == 0 && request.resource.data.stats.luk == 0 &&
+        request.resource.data.schemaVersion == 1;
+    }
+
+    function validCharacterCreation() {
+      return resource.data.characterCreated == false && request.resource.data.characterCreated == true &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName','raceId','classId','stats','hp','maxHp','mp','maxMp','characterCreated','updatedAt']) &&
+        request.resource.data.displayName is string && request.resource.data.displayName.size() >= 2 && request.resource.data.displayName.size() <= 16 &&
+        validCharacterStats(request.resource.data) &&
+        request.resource.data.hp == request.resource.data.maxHp && request.resource.data.mp == request.resource.data.maxMp;
+    }
+
+    match /admins/{uid} {
+      allow get: if owns(uid);
+      allow list, create, update, delete: if false;
+    }
+
+    match /players/{uid} {
+      allow read: if owns(uid) || admin();
+      allow create: if initialPlayer(uid) || admin();
+      allow update: if (owns(uid) && validCharacterCreation()) || admin();
+      allow delete: if admin();
+
+      match /inventory/{ownedItemId} {
+        allow read: if owns(uid) || admin();
+        allow update: if owns(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['equipped','equippedSlot']) &&
+          request.resource.data.itemId == resource.data.itemId && request.resource.data.quantity == resource.data.quantity && request.resource.data.rarity == resource.data.rarity;
+        allow create, delete: if admin();
+      }
+
+      match /skills/{id} { allow read: if owns(uid) || admin(); allow write: if admin(); }
+      match /titles/{id} { allow read: if owns(uid) || admin(); allow write: if admin(); }
+      match /quests/{id} { allow read: if owns(uid) || admin(); allow write: if admin(); }
+
+      match /notifications/{id} {
+        allow read: if owns(uid) || admin();
+        allow update: if owns(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read','readAt']) && request.resource.data.read == true;
+        allow create, delete: if admin();
+      }
+    }
+
+    match /items/{id} { allow read: if signedIn(); allow write: if admin(); }
+
+    match /itemRequests/{id} {
+      allow create: if signedIn() && request.resource.data.requesterUid == request.auth.uid && request.resource.data.status == 'pending' &&
+        request.resource.data.reviewedAt == null && request.resource.data.reviewedBy == null && request.resource.data.rejectionReason == null;
+      allow read: if (signedIn() && resource.data.requesterUid == request.auth.uid) || admin();
+      allow update, delete: if admin();
+    }
+
+    match /guilds/{guildId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.leaderUid == request.auth.uid && request.resource.data.status == 'pending' && request.resource.data.approvedAt == null && request.resource.data.approvedBy == null;
+      allow update, delete: if admin();
+
+      match /members/{uid} { allow read: if signedIn(); allow write: if admin(); }
+      match /joinRequests/{uid} {
+        allow read: if owns(uid) || admin() || (signedIn() && get(/databases/$(database)/documents/guilds/$(guildId)).data.leaderUid == request.auth.uid);
+        allow create: if owns(uid) && request.resource.data.uid == request.auth.uid && request.resource.data.status == 'pending';
+        allow delete: if owns(uid) || admin();
+        allow update: if admin();
+      }
+    }
+
+    match /parties/{partyId} {
+      allow read: if signedIn() && exists(/databases/$(database)/documents/parties/$(partyId)/members/$(request.auth.uid));
+      allow write: if admin();
+      match /members/{uid} { allow read: if owns(uid) || admin(); allow write: if admin(); }
+    }
+
+    match /systemAnnouncements/{id} { allow read: if signedIn(); allow write: if admin(); }
+    match /{document=**} { allow read, write: if false; }
   }
 }
